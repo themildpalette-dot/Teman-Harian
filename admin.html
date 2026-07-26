@@ -136,18 +136,24 @@ async function signOut(){ await sb.auth.signOut(); renderLogin('Kamu sudah kelua
 
 /* ---------- BOOT & GATE ---------- */
 async function boot(){
-  root.innerHTML=`<div class="spin"></div>`;
-  const { data:{ user } } = await sb.auth.getUser();
-  if(!user){ renderLogin(); return; }
-  const { data, error } = await sb.rpc('my_status');
-  const me = (data&&data[0])||null;
-  if(error || !me || !me.is_admin){
-    // Bukan admin — jangan kasih akses apa pun
-    await sb.auth.signOut();
-    renderLogin('Akun ini bukan admin. Masuk pakai akun admin.', 'err');
-    return;
+  try{
+    root.innerHTML=`<div class="spin"></div>`;
+    const res = await sb.auth.getUser();
+    const user = res && res.data ? res.data.user : null;
+    if(!user){ renderLogin(); return; }
+    const r = await sb.rpc('my_status');
+    const me = (r && r.data && r.data[0])||null;
+    if((r && r.error) || !me || !me.is_admin){
+      // Bukan admin — jangan kasih akses apa pun
+      await sb.auth.signOut();
+      renderLogin('Akun ini bukan admin. Masuk pakai akun admin.', 'err');
+      return;
+    }
+    loadUsers(me);
+  }catch(e){
+    console.error(e);
+    renderLogin('Tidak bisa terhubung. Coba lagi.', 'err');
   }
-  loadUsers(me);
 }
 
 /* ---------- DATA ---------- */
@@ -221,14 +227,20 @@ async function act(userId,status,btn){
 
 /* ---------- INIT ---------- */
 (async function init(){
-  if(!configured){ renderLogin(); return; }
-  const { data:{ user } } = await sb.auth.getUser();
-  if(user){ // ambil status buat simpan _me
-    const { data } = await sb.rpc('my_status'); const me=(data&&data[0])||null;
-    if(me&&me.is_admin){ _me=me; loadUsers(me); return; }
-    await sb.auth.signOut();
+  try{
+    if(!configured){ renderLogin(); return; }
+    const res = await sb.auth.getUser();
+    const user = res && res.data ? res.data.user : null;
+    if(user){ // ambil status buat simpan _me
+      const r = await sb.rpc('my_status'); const me=(r && r.data && r.data[0])||null;
+      if(me && me.is_admin){ _me=me; loadUsers(me); return; }
+      await sb.auth.signOut();
+    }
+    renderLogin();
+  }catch(e){
+    console.error(e);
+    renderLogin('Tidak bisa terhubung. Coba muat ulang halaman.', 'err');
   }
-  renderLogin();
 })();
 sb && sb.auth.onAuthStateChange((ev)=>{ if(ev==='SIGNED_OUT') renderLogin(); });
 // simpan _me saat konsol pertama render
