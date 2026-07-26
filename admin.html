@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Teman Harian — Konsol Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#16213A; --muted:#6D7C92; --line:#E8ECF1; --bg:#EEF1F5; --card:#fff;
+    --mint:#12CE8E; --mint-soft:#E2F9F0; --mint-ink:#0A7A57;
+    --coral:#FF6B5E; --coral-soft:#FFEBE8; --coral-ink:#C13B30;
+    --amber:#FF9F1C; --amber-soft:#FFF1DA; --amber-ink:#B96D00;
+    --violet:#6C5CE7; --violet-soft:#ECEBFE; --violet-ink:#463B9E;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;min-height:100vh}
+  .wrap{max-width:840px;margin:0 auto;padding:26px 18px 60px}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:10px}
+  .brand{font-size:24px;font-weight:700;letter-spacing:-.5px}
+  .brand span{color:var(--mint-ink)}
+  .brand small{display:block;font-size:12.5px;color:var(--muted);font-weight:600;letter-spacing:0}
+  .btn{border:0;border-radius:12px;padding:11px 16px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:transform .08s,filter .15s}
+  .btn:active{transform:scale(.98)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.primary{background:var(--mint);color:#fff}
+  .btn.ghost{background:#E6EAEF;color:var(--ink)}
+  .btn.sm{padding:8px 13px;font-size:13px;border-radius:10px}
+  .btn.ok{background:var(--mint);color:#fff}
+  .btn.no{background:#fff;color:var(--coral-ink);box-shadow:inset 0 0 0 1.5px var(--coral-soft)}
+  .btn.warn2{background:#fff;color:var(--amber-ink);box-shadow:inset 0 0 0 1.5px var(--amber-soft)}
+  .card{background:var(--card);border-radius:18px;padding:20px;box-shadow:0 1px 3px rgba(20,40,60,.05)}
+
+  /* login */
+  .login{max-width:400px;margin:8vh auto 0}
+  .login .brand{text-align:center;font-size:30px;margin-bottom:4px}
+  .tagc{text-align:center;color:var(--muted);font-weight:500;font-size:14px;margin-bottom:24px}
+  .field{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-family:inherit;font-size:15px;font-weight:600;color:var(--ink);margin-bottom:11px;background:#fff}
+  .field:focus{outline:none;border-color:var(--mint)}
+  .flab{font-size:12.5px;font-weight:600;color:var(--muted);margin:2px 2px 7px}
+  .banner{border-radius:11px;padding:11px 14px;font-size:13px;font-weight:600;margin-bottom:13px;display:none;line-height:1.5}
+  .banner.err{background:var(--coral-soft);color:var(--coral-ink);display:block}
+  .banner.ok{background:var(--mint-soft);color:var(--mint-ink);display:block}
+  .banner.info{background:var(--amber-soft);color:var(--amber-ink);display:block}
+
+  /* stats */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+  .stat{background:var(--card);border-radius:16px;padding:16px}
+  .stat .n{font-size:26px;font-weight:700;letter-spacing:-.5px}
+  .stat .l{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
+  .stat.pend .n{color:var(--amber-ink)} .stat.appr .n{color:var(--mint-ink)} .stat.rej .n{color:var(--coral-ink)}
+
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .tab{border:0;background:var(--card);color:var(--muted);border-radius:20px;padding:9px 15px;font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer}
+  .tab.on{background:var(--ink);color:#fff}
+  .tab .cnt{display:inline-block;min-width:19px;padding:0 5px;margin-left:5px;border-radius:20px;background:rgba(0,0,0,.12);font-size:11.5px;line-height:19px;text-align:center}
+  .tab.on .cnt{background:rgba(255,255,255,.25)}
+
+  .urow{display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid var(--line)}
+  .urow:last-child{border-bottom:0}
+  .ava{width:44px;height:44px;border-radius:13px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:700}
+  .uinfo{flex:1;min-width:0}
+  .uname{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .uemail{font-size:13px;color:var(--muted);font-weight:500;margin-top:1px;word-break:break-all}
+  .uwhen{font-size:11.5px;color:#9AA6B4;font-weight:500;margin-top:3px}
+  .uact{display:flex;gap:7px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+  .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .badge.pend{background:var(--amber-soft);color:var(--amber-ink)}
+  .badge.appr{background:var(--mint-soft);color:var(--mint-ink)}
+  .badge.rej{background:var(--coral-soft);color:var(--coral-ink)}
+  .badge.adm{background:var(--violet-soft);color:var(--violet-ink)}
+  .empty{text-align:center;color:var(--muted);font-size:14px;font-weight:500;padding:40px 10px}
+  .spin{width:24px;height:24px;border:3px solid rgba(0,0,0,.08);border-top-color:var(--mint);border-radius:50%;animation:sp 1s linear infinite;margin:40px auto}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .toast{position:fixed;left:50%;transform:translateX(-50%) translateY(14px);bottom:26px;background:var(--ink);color:#fff;border-radius:13px;padding:12px 18px;font-size:14px;font-weight:600;opacity:0;transition:.25s;pointer-events:none;z-index:50}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .cfgwarn{background:#FFF7E6;border:1.5px solid #FFE2A8;color:#7A5B00;border-radius:12px;padding:13px 15px;font-size:13px;font-weight:600;margin-bottom:16px;line-height:1.55;display:none}
+  .hint{font-size:12.5px;color:var(--muted);font-weight:500;margin:2px 2px 12px;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="root" class="wrap">
+  <div class="spin"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==========================================================
+   ISI DUA BARIS DI BAWAH — sama persis dengan yang di index.html
+   ========================================================== */
+const SUPABASE_URL      = "https://mfrafmkiliusqrmxgfjt.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mcmFmbWtpbGl1c3FybXhnZmp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwNjYwMTEsImV4cCI6MjEwMDY0MjAxMX0.mtUGVY92UbdPsT8esSe5N54GmlqGRU3rtjoPkGpsuw8";
+/* ========================================================== */
+
+const configured = !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.includes("YOUR-ANON");
+const sb = (configured && typeof supabase!=="undefined") ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const root = document.getElementById('root');
+const pal = ['#12CE8E','#FF6B5E','#6C5CE7','#3AA0FF','#FF9F1C'];
+const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+let curTab='pending', allUsers=[];
+
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('on'); clearTimeout(window._t); window._t=setTimeout(()=>t.classList.remove('on'),2400); }
+function fmtWhen(s){ if(!s) return ''; const d=new Date(s), now=new Date(); const diff=(now-d)/86400000;
+  if(diff<1) return 'hari ini'; if(diff<2) return 'kemarin'; if(diff<30) return Math.floor(diff)+' hari lalu';
+  return d.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}); }
+
+/* ---------- LOGIN ---------- */
+function renderLogin(msg,kind){
+  root.innerHTML=`<div class="login">
+    <div class="brand">Teman <span>Harian</span></div>
+    <div class="tagc">Konsol Admin</div>
+    ${!configured?`<div class="cfgwarn" style="display:block">⚠️ Belum tersambung. Isi <b>SUPABASE_URL</b> &amp; <b>SUPABASE_ANON_KEY</b> di bagian atas file ini (sama seperti index.html), lalu muat ulang.</div>`:''}
+    <div class="card">
+      <div class="banner ${kind||''}" id="lb" ${msg?'':'style="display:none"'}>${msg||''}</div>
+      <label class="flab">Email admin</label>
+      <input class="field" id="em" type="email" placeholder="admin@contoh.com" autocomplete="email" ${!configured?'disabled':''}>
+      <label class="flab">Password</label>
+      <input class="field" id="pw" type="password" placeholder="••••••••" autocomplete="current-password" ${!configured?'disabled':''}>
+      <button class="btn primary" style="width:100%;justify-content:center" onclick="doLogin(this)" ${!configured?'disabled':''}>Masuk</button>
+      <div class="hint" style="margin-top:12px;text-align:center">Halaman ini khusus admin. Pengguna biasa memakai aplikasi utama.</div>
+    </div>
+  </div>`;
+}
+async function doLogin(btn){
+  const email=document.getElementById('em').value.trim(), password=document.getElementById('pw').value;
+  if(!email||!password){ renderLogin('Isi email dan password.','err'); return; }
+  btn.disabled=true;
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ renderLogin(error.message,'err'); return; }
+  boot();
+}
+async function signOut(){ await sb.auth.signOut(); renderLogin('Kamu sudah keluar.','ok'); }
+
+/* ---------- BOOT & GATE ---------- */
+async function boot(){
+  root.innerHTML=`<div class="spin"></div>`;
+  const { data:{ user } } = await sb.auth.getUser();
+  if(!user){ renderLogin(); return; }
+  const { data, error } = await sb.rpc('my_status');
+  const me = (data&&data[0])||null;
+  if(error || !me || !me.is_admin){
+    // Bukan admin — jangan kasih akses apa pun
+    await sb.auth.signOut();
+    renderLogin('Akun ini bukan admin. Masuk pakai akun admin.', 'err');
+    return;
+  }
+  loadUsers(me);
+}
+
+/* ---------- DATA ---------- */
+async function loadUsers(me){
+  root.innerHTML=`<div class="spin"></div>`;
+  const { data, error } = await sb.rpc('admin_list_users');
+  if(error){ renderLogin('Gagal memuat: '+error.message,'err'); return; }
+  allUsers = data||[];
+  renderConsole(me);
+}
+function count(status){ return allUsers.filter(u=>u.status===status).length; }
+
+/* ---------- KONSOL ---------- */
+function renderConsole(me){
+  const pend=count('pending'), appr=count('approved'), rej=count('rejected');
+  root.innerHTML=`
+    <div class="top">
+      <div class="brand">Teman <span>Harian</span><small>Konsol Admin · ${esc(me.full_name||'Admin')}</small></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost sm" onclick="boot()">↻ Segarkan</button>
+        <button class="btn ghost sm" onclick="signOut()">Keluar</button>
+      </div>
+    </div>
+    ${pend>0?`<div class="banner info" style="display:block">🔔 Ada <b>${pend}</b> orang menunggu persetujuan.</div>`:''}
+    <div class="stats">
+      <div class="stat pend"><div class="n">${pend}</div><div class="l">Menunggu</div></div>
+      <div class="stat appr"><div class="n">${appr}</div><div class="l">Disetujui</div></div>
+      <div class="stat rej"><div class="n">${rej}</div><div class="l">Ditolak</div></div>
+    </div>
+    <div class="tabs">
+      <button class="tab ${curTab==='pending'?'on':''}" onclick="setTab('pending')">Menunggu<span class="cnt">${pend}</span></button>
+      <button class="tab ${curTab==='approved'?'on':''}" onclick="setTab('approved')">Disetujui<span class="cnt">${appr}</span></button>
+      <button class="tab ${curTab==='rejected'?'on':''}" onclick="setTab('rejected')">Ditolak<span class="cnt">${rej}</span></button>
+    </div>
+    <div class="card" id="list"></div>`;
+  renderList();
+}
+function setTab(t){ curTab=t; document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('on',false));
+  renderConsole(_me); }
+let _me=null;
+function renderList(){
+  const box=document.getElementById('list'); if(!box) return;
+  const list=allUsers.filter(u=>u.status===curTab);
+  if(!list.length){ box.innerHTML=`<div class="empty">${curTab==='pending'?'Nggak ada yang menunggu. 🎉':'Belum ada.'}</div>`; return; }
+  box.innerHTML=list.map((u,i)=>{
+    const initial=(u.full_name||u.email||'?').trim()[0].toUpperCase();
+    const when = u.status==='pending' ? 'Daftar '+fmtWhen(u.requested_at) : (u.decided_at?'Diputuskan '+fmtWhen(u.decided_at):'');
+    let actions='';
+    if(u.status==='pending') actions=`<button class="btn ok sm" onclick="act('${u.id}','approved',this)">✓ Setujui</button><button class="btn no sm" onclick="act('${u.id}','rejected',this)">Tolak</button>`;
+    else if(u.status==='approved') actions = u.is_admin ? `<span class="badge adm">admin</span>` : `<button class="btn warn2 sm" onclick="act('${u.id}','rejected',this)">Cabut akses</button>`;
+    else actions=`<button class="btn ok sm" onclick="act('${u.id}','approved',this)">Setujui ulang</button>`;
+    return `<div class="urow">
+      <div class="ava" style="background:${pal[i%pal.length]}">${esc(initial)}</div>
+      <div class="uinfo">
+        <div class="uname">${esc(u.full_name||'(tanpa nama)')} ${u.is_admin?'<span class="badge adm">admin</span>':''} ${u.has_household&&u.status==='approved'?'<span class="badge appr">aktif</span>':''}</div>
+        <div class="uemail">${esc(u.email||'')}</div>
+        <div class="uwhen">${when}</div>
+      </div>
+      <div class="uact">${actions}</div>
+    </div>`;
+  }).join('');
+}
+async function act(userId,status,btn){
+  btn.disabled=true;
+  const { error } = await sb.rpc('admin_set_status',{ p_user:userId, p_status:status });
+  if(error){ toast('Gagal: '+error.message); btn.disabled=false; return; }
+  const u=allUsers.find(x=>x.id===userId); if(u){ u.status=status; u.decided_at=new Date().toISOString(); }
+  toast(status==='approved'?'Disetujui ✓':status==='rejected'?'Ditolak':'Diperbarui');
+  renderConsole(_me);
+}
+
+/* ---------- INIT ---------- */
+(async function init(){
+  if(!configured){ renderLogin(); return; }
+  const { data:{ user } } = await sb.auth.getUser();
+  if(user){ // ambil status buat simpan _me
+    const { data } = await sb.rpc('my_status'); const me=(data&&data[0])||null;
+    if(me&&me.is_admin){ _me=me; loadUsers(me); return; }
+    await sb.auth.signOut();
+  }
+  renderLogin();
+})();
+sb && sb.auth.onAuthStateChange((ev)=>{ if(ev==='SIGNED_OUT') renderLogin(); });
+// simpan _me saat konsol pertama render
+const _origRender=renderConsole;
+renderConsole=function(me){ _me=me||_me; _origRender(_me); };
