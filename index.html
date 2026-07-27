@@ -689,7 +689,7 @@ function oops(e){ console.error(e); toast((e&&e.message)?e.message:'Gagal menyim
 /* ---------- state ---------- */
 let ctx = { user:null, householdId:null, memberId:null, myName:'' };
 let db = { cats:[], accounts:[], balances:{}, tx:[], members:[], budget:null, items:[], spent:{},
-           goals:[], installments:[], cooling:[], recipes:[], ing:{}, meals:[], gro:[] };
+           goals:[], installments:[], sched:{}, cooling:[], recipes:[], ing:{}, meals:[], gro:[] };
 let ui = { hideBalance:false, selDay:TODAY.getDate(), selMealDay:(TODAY.getDay()+6)%7, view:'hub', uang:'dompet', makan:'rencana' };
 
 /* ---------- AUTH ---------- */
@@ -853,7 +853,7 @@ async function adminAct(userId,status,btn){
 
 async function loadAll(){
   const hid=ctx.householdId, mS=ymd(M_START), mE=ymd(M_END);
-  const [cats,accs,bals,txs,mems,buds,goals,inst,cool,recs,ings,meals,gro] = await Promise.all([
+  const [cats,accs,bals,txs,mems,buds,goals,inst,cool,recs,ings,meals,gro,schd] = await Promise.all([
     sb.from('categories').select('*'),
     sb.from('accounts').select('*').eq('archived',false).order('created_at'),
     sb.from('account_balances').select('*'),
@@ -866,11 +866,13 @@ async function loadAll(){
     sb.from('recipes').select('*').order('name'),
     sb.from('recipe_ingredients').select('*').order('sort'),
     sb.from('meal_plan_entries').select('*').gte('plan_date',ymd(WEEK[0])).lte('plan_date',ymd(WEEK[6])),
-    sb.from('grocery_items').select('*').order('created_at')
+    sb.from('grocery_items').select('*').order('created_at'),
+    sb.from('installment_schedule').select('*').order('month_no')
   ]);
   db.cats=cats.data||[]; db.accounts=accs.data||[]; db.tx=txs.data||[]; db.members=mems.data||[];
   db.goals=goals.data||[]; db.installments=inst.data||[]; db.cooling=cool.data||[];
   db.recipes=recs.data||[]; db.meals=meals.data||[]; db.gro=gro.data||[];
+  db.sched={}; (schd.data||[]).forEach(s=>{ (db.sched[s.installment_id]=db.sched[s.installment_id]||[]).push(s); });
   db.balances={}; (bals.data||[]).forEach(b=>db.balances[b.account_id]=Number(b.balance_rp));
   db.ing={}; (ings.data||[]).forEach(i=>{ (db.ing[i.recipe_id]=db.ing[i.recipe_id]||[]).push(i); });
 
@@ -1041,11 +1043,14 @@ function renderCatatan(){
   $('day-total').textContent=keluarHari?'−'+rp(keluarHari):'';
   $('day-list').innerHTML = dayTx.length ? dayTx.map(t=>{
     const a=accById(t.account_id), w=memById(t.member_id);
-    return `<div class="card" style="padding:12px 14px;margin-bottom:9px"><div class="item">
+    return `<div class="card" style="padding:12px 14px;margin-bottom:9px;cursor:pointer" onclick="openTxEdit('${t.id}')"><div class="item">
       <div class="thumb emoji" style="width:40px;height:40px">${catEmoji(t.category)}</div>
       <div class="body"><div class="nm">${esc(t.note||catLabel(t.category))}</div>
         <div class="mt">${esc(catLabel(t.category))} · ${a?esc(a.name):'?'}${w?' · '+esc(w.display_name):''}</div></div>
-      <div style="font-weight:700;font-size:14.5px;color:${t.direction==='in'?'var(--mint-ink)':'var(--coral-ink)'}">${t.direction==='in'?'+':'−'}${rp(t.amount_rp)}</div>
+      <div style="display:flex;align-items:center;gap:7px">
+        <div style="font-weight:700;font-size:14.5px;color:${t.direction==='in'?'var(--mint-ink)':'var(--coral-ink)'}">${t.direction==='in'?'+':'−'}${rp(t.amount_rp)}</div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B8C0CC" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
     </div></div>`; }).join('') : `<div class="empty">Nggak ada transaksi di hari ini.</div>`;
 }
 
@@ -1115,6 +1120,50 @@ async function addTx(btn){
   btn.disabled=false;
   if(error) return oops(error);
   ui.selDay=TODAY.getDate(); closeSheet(); await refresh(); toast('Transaksi dicatat');
+}
+
+/* ---------- EDIT / HAPUS TRANSAKSI ---------- */
+let txEditId=null;
+function openTxEdit(id){
+  const t=db.tx.find(x=>x.id===id); if(!t) return;
+  txEditId=id;
+  txSel={dir:t.direction, cat:t.category, akun:t.account_id, who:t.member_id};
+  sheet.innerHTML=`<div class="grab"></div><h3>Ubah transaksi</h3>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn sm" id="t-keluar" style="flex:1;width:auto" onclick="setTxType('out')">Keluar</button>
+      <button class="btn sm" id="t-masuk" style="flex:1;width:auto" onclick="setTxType('in')">Masuk</button></div>
+    <div class="flab">Kategori</div><div class="kwrap" id="kat-chips"></div>
+    <div id="newkat-form" style="display:none;gap:8px;margin-bottom:12px">
+      <input class="field" id="nk-emoji" placeholder="🙂" maxlength="4" style="width:62px;text-align:center;font-size:20px;margin-bottom:0;padding:10px 4px">
+      <input class="field" id="nk-nama" placeholder="Nama kategori" style="flex:1;margin-bottom:0">
+      <button class="btn primary sm" style="border-radius:13px" onclick="saveNewKat(this)">OK</button></div>
+    <input class="field" id="t-nom" placeholder="Nominal" inputmode="numeric" value="${fmtNum(String(t.amount_rp))}">
+    <input class="field" id="t-ket" placeholder="Keterangan (opsional)" value="${esc(t.note||'')}">
+    <div class="flab" id="akun-lab">Dari akun mana?</div><div class="kwrap" id="akun-chips"></div>
+    <div class="flab">Siapa yang pakai?</div><div class="kwrap" id="who-chips"></div>
+    <button class="btn primary" style="margin-top:6px" onclick="saveTxEdit(this)">Simpan perubahan</button>
+    <button class="btn no" style="margin-top:9px;width:100%" onclick="delTx('${id}',this)">Hapus transaksi</button>`;
+  overlay.classList.add('on'); renderTxChips();
+}
+async function saveTxEdit(btn){
+  if(!txEditId) return;
+  const val=parseRp($('t-nom').value);
+  if(val<=0){ toast('Isi nominalnya dulu'); return; }
+  btn.disabled=true;
+  const { error } = await sb.from('transactions').update({ account_id:txSel.akun,
+    member_id:txSel.who, direction:txSel.dir, category:txSel.cat, amount_rp:val,
+    note:$('t-ket').value.trim()||null }).eq('id',txEditId);
+  btn.disabled=false;
+  if(error) return oops(error);
+  txEditId=null; closeSheet(); await refresh(); toast('Transaksi diperbarui');
+}
+async function delTx(id,btn){
+  if(!confirm('Hapus transaksi ini? Tindakan ini tidak bisa dibatalkan.')) return;
+  btn.disabled=true;
+  const { error } = await sb.from('transactions').delete().eq('id',id);
+  btn.disabled=false;
+  if(error) return oops(error);
+  txEditId=null; closeSheet(); await refresh(); toast('Transaksi dihapus');
 }
 
 /* ---------- SCAN STRUK ---------- */
@@ -1247,20 +1296,37 @@ function renderTarget(){
     else if(ml===null) tm='Tanpa tenggat';
     else if(ml<=0) tm='Tenggat lewat — atur ulang';
     else tm=`Tenggat ${monthName[parseInt(g.deadline_month.slice(5,7),10)-1]} ${g.deadline_month.slice(0,4)} · perlu ${shortRp(perlu)}/bln`;
-    return `<div class="tcard">${ringSVG(pct,g.color||'#12CE8E')}
+    return `<div class="tcard" style="cursor:pointer" onclick="openSetor('${g.id}')">${ringSVG(pct,g.color||'#12CE8E')}
       <div class="info"><div class="tn">${esc(g.name)}</div><div class="ta">${rp(g.current_rp)} / ${rp(g.target_rp)}</div>
         <div class="tm" style="${!done&&ml!==null&&ml<=0?'color:var(--coral-ink);font-weight:600':''}">${tm}</div></div>
-      ${done?'<span class="pill mint">selesai</span>':`<button class="btn sm" style="background:${g.color||'#12CE8E'};color:#fff" onclick="openSetor('${g.id}')">Setor</button>`}</div>`;
+      ${done?'<span class="pill mint">selesai</span>':`<button class="btn sm" style="background:${g.color||'#12CE8E'};color:#fff" onclick="event.stopPropagation();openSetor('${g.id}')">Setor</button>`}</div>`;
   }).join('') : `<div class="empty">Belum ada target tabungan.</div>`;
 }
 function openSetor(id){
   const g=db.goals.find(x=>x.id===id); if(!g) return;
   const perlu=perluBulanan(g)||Math.max(0,Number(g.target_rp)-Number(g.current_rp));
-  sheet.innerHTML=`<div class="grab"></div><h3>Setor ke ${esc(g.name)}</h3>
+  const done=Number(g.current_rp)>=Number(g.target_rp);
+  sheet.innerHTML=`<div class="grab"></div><h3>${esc(g.name)}</h3>
     <div class="hint">Terkumpul ${rp(g.current_rp)} dari ${rp(g.target_rp)}.</div>
+    ${done?'':`<div class="flab">Setor tabungan</div>
     <input class="field" id="st-val" inputmode="numeric" value="${fmtNum(String(perlu))}">
-    <button class="btn primary" onclick="doSetor('${g.id}',this)">Setor</button>`;
+    <button class="btn primary" style="width:100%" onclick="doSetor('${g.id}',this)">Setor</button>`}
+
+    <div class="flab" style="margin-top:18px">Koreksi jumlah terkumpul</div>
+    <div class="hint" style="margin-top:0;margin-bottom:8px">Salah setor? Atur jumlah terkumpul ke angka yang benar.</div>
+    <input class="field" id="st-koreksi" inputmode="numeric" value="${fmtNum(String(g.current_rp))}">
+    <button class="btn ghost" style="width:100%" onclick="doKoreksiGoal('${g.id}',this)">Simpan koreksi</button>
+
+    <button class="btn ghost" style="width:100%;margin-top:16px" onclick="openTargetEdit('${g.id}')">✏️ Ubah nama / target / tenggat</button>`;
   overlay.classList.add('on');
+}
+async function doKoreksiGoal(id,btn){
+  const v=parseRp($('st-koreksi').value);
+  if(v<0){ toast('Jumlah tidak boleh negatif'); return; }
+  btn.disabled=true;
+  const { error } = await sb.rpc('set_goal_total',{ p_goal:id, p_new_total:v, p_member:ctx.memberId });
+  btn.disabled=false; if(error) return oops(error);
+  closeSheet(); await refresh(); toast('Jumlah terkumpul diperbarui');
 }
 async function doSetor(id,btn){
   const v=parseRp($('st-val').value); if(v<=0){ toast('Isi nominalnya'); return; }
@@ -1268,6 +1334,44 @@ async function doSetor(id,btn){
   const { error } = await sb.rpc('contribute_goal',{ p_goal:id, p_amount:v, p_member:ctx.memberId });
   btn.disabled=false; if(error) return oops(error);
   closeSheet(); await refresh(); toast(`Disetor ${rp(v)}`);
+}
+function openTargetEdit(id){
+  const g=db.goals.find(x=>x.id===id); if(!g) return;
+  const y=TODAY.getFullYear();
+  const curMonth = g.deadline_month?parseInt(g.deadline_month.slice(5,7),10)-1:TODAY.getMonth();
+  const curYear = g.deadline_month?parseInt(g.deadline_month.slice(0,4),10):y+1;
+  sheet.innerHTML=`<div class="grab"></div><h3>Ubah target</h3>
+    <div class="flab">Nama target</div>
+    <input class="field" id="ge-nama" value="${esc(g.name)}">
+    <div class="flab">Target jumlah</div>
+    <input class="field" id="ge-target" inputmode="numeric" value="${fmtNum(String(g.target_rp))}">
+    <div class="flab">Kapan mau tercapai?</div>
+    <div style="display:flex;gap:8px">
+      <select class="field" id="ge-bulan" style="flex:1">${monthName.map((m,i)=>`<option value="${i}" ${i===curMonth?'selected':''}>${m}</option>`).join('')}</select>
+      <select class="field" id="ge-tahun" style="flex:1">${[0,1,2,3,4,5].map(d=>`<option value="${y+d}" ${(y+d)===curYear?'selected':''}>${y+d}</option>`).join('')}</select>
+    </div>
+    <button class="btn primary" style="width:100%;margin-top:6px" onclick="doTargetEdit('${g.id}',this)">Simpan perubahan</button>
+    <button class="btn no" style="width:100%;margin-top:9px" onclick="delTarget('${g.id}',this)">Hapus target</button>`;
+  overlay.classList.add('on');
+}
+async function doTargetEdit(id,btn){
+  const nama=$('ge-nama').value.trim();
+  const target=parseRp($('ge-target').value);
+  if(!nama){ toast('Isi nama target'); return; }
+  if(target<=0){ toast('Isi target jumlah'); return; }
+  const bln=String(parseInt($('ge-bulan').value,10)+1).padStart(2,'0');
+  const deadline=`${$('ge-tahun').value}-${bln}-01`;
+  btn.disabled=true;
+  const { error } = await sb.rpc('edit_goal',{ p_goal:id, p_name:nama, p_target:target, p_deadline:deadline, p_color:null });
+  btn.disabled=false; if(error) return oops(error);
+  closeSheet(); await refresh(); toast('Target diperbarui');
+}
+async function delTarget(id,btn){
+  if(!confirm('Hapus target ini beserta riwayat setorannya? Tidak bisa dibatalkan.')) return;
+  btn.disabled=true;
+  const { error } = await sb.from('savings_goals').delete().eq('id',id);
+  btn.disabled=false; if(error) return oops(error);
+  closeSheet(); await refresh(); toast('Target dihapus');
 }
 function openTargetAdd(){
   const y=TODAY.getFullYear();
@@ -1296,53 +1400,185 @@ async function addTarget(btn){
 
 /* ---------- CICILAN ---------- */
 function sisaBulanCic(c){ return Math.max(0, c.months_total - c.months_paid); }
+function cicPerRp(c){
+  // untuk cicilan berjadwal, ambil nominal bulan berikutnya yang belum dibayar
+  if(c.variable){ const sc=(db.sched[c.id]||[]).find(s=>!s.paid); return sc?Number(sc.amount_rp):0; }
+  return Number(c.per_rp);
+}
+function cicSisaTotal(c){
+  if(c.variable){ return (db.sched[c.id]||[]).filter(s=>!s.paid).reduce((s,x)=>s+Number(x.amount_rp),0); }
+  return sisaBulanCic(c)*Number(c.per_rp);
+}
 function renderCicilan(){
   const aktif=db.installments.filter(c=>sisaBulanCic(c)>0);
-  const kewajiban=aktif.reduce((s,c)=>s+Number(c.per_rp),0);
-  const sisa=aktif.reduce((s,c)=>s+sisaBulanCic(c)*Number(c.per_rp),0);
+  const kewajiban=aktif.reduce((s,c)=>s+cicPerRp(c),0);
+  const sisa=aktif.reduce((s,c)=>s+cicSisaTotal(c),0);
   const maxRemain=aktif.length?Math.max(...aktif.map(sisaBulanCic)):0;
   $('kewajiban-cic').textContent=rp(kewajiban); $('sisa-utang').textContent=rp(sisa);
   $('bebas').textContent = maxRemain>0 ? labelBulan(maxRemain) : 'Lunas!';
   $('cic-list').innerHTML = db.installments.length ? db.installments.map((c,i)=>{
     const pct=c.months_total>0?Math.round(c.months_paid/c.months_total*100):0, done=sisaBulanCic(c)<=0;
-    return `<div class="card"><div class="item">
+    const nextAmt=cicPerRp(c);
+    const nextMonth = c.variable ? (db.sched[c.id]||[]).find(s=>!s.paid) : null;
+    const label = c.variable
+      ? (done?'':`Bulan ke-${nextMonth?nextMonth.month_no:c.months_paid+1}: ${rp(nextAmt)}`)
+      : rp(c.per_rp);
+    return `<div class="card" style="cursor:pointer" onclick="openCicEdit('${c.id}')"><div class="item">
       <div class="thumb" style="width:44px;height:44px;background:${provColor[i%3]}">${esc(c.provider[0]||'?')}</div>
-      <div class="body"><div class="nm">${esc(c.provider)}</div><div class="mt">${esc(c.item||'')}</div></div>
-      <div style="text-align:right"><div style="font-weight:700;font-size:14.5px">${rp(c.per_rp)}</div>
+      <div class="body"><div class="nm">${esc(c.provider)} ${c.variable?'<span class="pill gray" style="margin-left:4px">berubah</span>':''}</div><div class="mt">${esc(c.item||'')}</div></div>
+      <div style="text-align:right"><div style="font-weight:700;font-size:14.5px">${done?'Lunas':rp(nextAmt)}</div>
         ${c.due_day?`<span class="pill gray" style="margin-top:3px">tgl ${c.due_day}</span>`:''}</div></div>
       <div class="track"><div class="fill" style="width:${pct}%;background:${done?'var(--mint)':provColor[i%3]}"></div></div>
-      <div class="prog-lab"><span>${c.months_paid} dari ${c.months_total} bulan</span>
-        ${done?`<span style="color:var(--mint-ink)">Lunas</span>`:`<button class="btn primary sm" onclick="payCic('${c.id}')">Tandai bayar</button>`}</div></div>`;
+      <div class="prog-lab"><span>${c.months_paid} dari ${c.months_total} bulan${c.variable&&!done?' · '+label:''}</span>
+        ${done?`<span style="color:var(--mint-ink)">Lunas</span>`:`<button class="btn primary sm" onclick="event.stopPropagation();payCic('${c.id}')">Tandai bayar</button>`}</div></div>`;
   }).join('') : `<div class="empty">Belum ada cicilan. Semoga tetap begitu 🎉</div>`;
 }
 async function payCic(id){
   const c=db.installments.find(x=>x.id===id); if(!c||sisaBulanCic(c)<=0) return;
-  const { error } = await sb.from('installments').update({ months_paid:c.months_paid+1 }).eq('id',id);
-  if(error) return oops(error);
-  await sb.from('installment_payments').insert({ installment_id:id, amount_rp:c.per_rp });
-  await refresh(); toast(`${c.provider} ditandai dibayar`);
+  if(c.variable){
+    const next=(db.sched[id]||[]).find(s=>!s.paid);
+    if(!next){ toast('Semua bulan sudah dibayar'); return; }
+    const { error } = await sb.rpc('pay_installment_month',{ p_inst:id, p_month:next.month_no });
+    if(error) return oops(error);
+    await refresh(); toast(`${c.provider} bulan ke-${next.month_no} dibayar (${rp(next.amount_rp)})`);
+  }else{
+    const { error } = await sb.from('installments').update({ months_paid:c.months_paid+1 }).eq('id',id);
+    if(error) return oops(error);
+    await sb.from('installment_payments').insert({ installment_id:id, amount_rp:c.per_rp });
+    await refresh(); toast(`${c.provider} ditandai dibayar`);
+  }
 }
+/* ---------- TAMBAH CICILAN ---------- */
+let cicVariable=false;
 function openCicAdd(){
+  cicVariable=false;
   sheet.innerHTML=`<div class="grab"></div><h3>Tambah cicilan</h3>
     <input class="field" id="ci-prov" placeholder="Penyedia, mis. ShopeePayLater">
     <input class="field" id="ci-item" placeholder="Barang (opsional)">
-    <input class="field" id="ci-per" placeholder="Cicilan per bulan" inputmode="numeric">
-    <div style="display:flex;gap:8px">
-      <input class="field" id="ci-total" placeholder="Total bulan" inputmode="numeric" style="flex:1">
-      <input class="field" id="ci-paid" placeholder="Sudah dibayar" inputmode="numeric" style="flex:1">
+    <div class="flab">Jenis cicilan</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn sm" id="cv-tetap" style="flex:1;width:auto" onclick="setCicVar(false)">Tetap tiap bulan</button>
+      <button class="btn sm" id="cv-ubah" style="flex:1;width:auto" onclick="setCicVar(true)">Berubah tiap bulan</button>
     </div>
-    <button class="btn primary" onclick="addCic(this)">Simpan cicilan</button>`;
-  overlay.classList.add('on'); setTimeout(()=>$('ci-prov').focus(),260);
+    <div id="ci-body"></div>
+    <button class="btn primary" style="margin-top:6px" onclick="addCic(this)">Simpan cicilan</button>`;
+  overlay.classList.add('on'); setCicVar(false); setTimeout(()=>$('ci-prov').focus(),260);
+}
+function setCicVar(v){
+  cicVariable=v;
+  const bt=$('cv-tetap'), bu=$('cv-ubah');
+  if(bt) bt.classList.toggle('primary',!v); if(bu) bu.classList.toggle('primary',v);
+  const body=$('ci-body'); if(!body) return;
+  if(!v){
+    body.innerHTML=`<input class="field" id="ci-per" placeholder="Cicilan per bulan" inputmode="numeric">
+      <div style="display:flex;gap:8px">
+        <input class="field" id="ci-total" placeholder="Total bulan" inputmode="numeric" style="flex:1">
+        <input class="field" id="ci-paid" placeholder="Sudah dibayar" inputmode="numeric" style="flex:1">
+      </div>`;
+  }else{
+    body.innerHTML=`<div class="hint" style="margin-top:0">Berapa bulan total? Lalu isi nominal tiap bulannya.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <input class="field" id="ci-nmonth" placeholder="Total bulan, mis. 12" inputmode="numeric" style="flex:1;margin-bottom:0" oninput="buildSchedInputs()">
+        <button class="btn ghost sm" onclick="buildSchedInputs()">Buat</button>
+      </div>
+      <div id="sched-inputs"></div>`;
+  }
+}
+function buildSchedInputs(){
+  const n=parseInt(($('ci-nmonth')||{}).value||'0',10);
+  const box=$('sched-inputs'); if(!box) return;
+  if(!n||n<1||n>60){ box.innerHTML=''; return; }
+  let h='';
+  for(let m=1;m<=n;m++){
+    h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:7px">
+      <span style="font-size:13px;color:var(--muted);font-weight:600;width:70px;flex-shrink:0">Bulan ${m}</span>
+      <input class="field sched-amt" data-m="${m}" placeholder="Nominal" inputmode="numeric" style="flex:1;margin-bottom:0">
+    </div>`;
+  }
+  box.innerHTML=h;
 }
 async function addCic(btn){
-  const prov=$('ci-prov').value.trim(), per=parseRp($('ci-per').value), tot=parseRp($('ci-total').value), paid=parseRp($('ci-paid').value);
+  const prov=$('ci-prov').value.trim();
   if(!prov){ toast('Isi nama penyedianya'); return; }
-  if(per<=0||tot<=0){ toast('Isi cicilan per bulan dan total bulannya'); return; }
   btn.disabled=true;
-  const { error } = await sb.from('installments').insert({ household_id:ctx.householdId, provider:prov,
-    item:$('ci-item').value.trim()||null, per_rp:per, months_total:tot, months_paid:Math.min(paid,tot) });
+  if(!cicVariable){
+    const per=parseRp($('ci-per').value), tot=parseRp($('ci-total').value), paid=parseRp($('ci-paid').value);
+    if(per<=0||tot<=0){ toast('Isi cicilan per bulan dan total bulannya'); btn.disabled=false; return; }
+    const { error } = await sb.from('installments').insert({ household_id:ctx.householdId, provider:prov,
+      item:$('ci-item').value.trim()||null, per_rp:per, months_total:tot, months_paid:Math.min(paid,tot), variable:false });
+    btn.disabled=false; if(error) return oops(error);
+    closeSheet(); await refresh(); toast('Cicilan ditambahkan');
+  }else{
+    const amts=[...document.querySelectorAll('.sched-amt')].map(el=>parseRp(el.value));
+    if(!amts.length){ toast('Buat jadwal bulannya dulu'); btn.disabled=false; return; }
+    if(amts.some(a=>a<=0)){ toast('Isi nominal semua bulan'); btn.disabled=false; return; }
+    // buat cicilan dulu, lalu simpan jadwal
+    const { data, error } = await sb.from('installments').insert({ household_id:ctx.householdId, provider:prov,
+      item:$('ci-item').value.trim()||null, per_rp:amts[0], months_total:amts.length, months_paid:0, variable:true }).select('id').single();
+    if(error){ btn.disabled=false; return oops(error); }
+    const { error:e2 } = await sb.rpc('set_installment_schedule',{ p_inst:data.id, p_amounts:amts });
+    btn.disabled=false; if(e2) return oops(e2);
+    closeSheet(); await refresh(); toast('Cicilan berjadwal ditambahkan');
+  }
+}
+/* ---------- EDIT / HAPUS CICILAN ---------- */
+function openCicEdit(id){
+  const c=db.installments.find(x=>x.id===id); if(!c) return;
+  const schedRows = c.variable ? (db.sched[id]||[]).map(s=>
+    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:7px">
+      <span style="font-size:13px;font-weight:600;width:70px;flex-shrink:0;${s.paid?'color:var(--mint-ink)':'color:var(--muted)'}">Bulan ${s.month_no}${s.paid?' ✓':''}</span>
+      <input class="field sched-amt-edit" data-m="${s.month_no}" value="${fmtNum(String(s.amount_rp))}" inputmode="numeric" style="flex:1;margin-bottom:0" ${s.paid?'disabled':''}>
+    </div>`).join('') : '';
+  sheet.innerHTML=`<div class="grab"></div><h3>Ubah cicilan</h3>
+    <input class="field" id="ce-prov" value="${esc(c.provider)}" placeholder="Penyedia">
+    <input class="field" id="ce-item" value="${esc(c.item||'')}" placeholder="Barang (opsional)">
+    ${c.variable ? `
+      <div class="flab">Nominal tiap bulan (yang ✓ sudah dibayar, tak bisa diubah)</div>
+      ${schedRows}
+      <button class="btn ghost" style="width:100%;margin-top:4px" onclick="saveSchedEdit('${c.id}',this)">Simpan jadwal</button>
+    ` : `
+      <input class="field" id="ce-per" value="${fmtNum(String(c.per_rp))}" placeholder="Cicilan per bulan" inputmode="numeric">
+      <div style="display:flex;gap:8px">
+        <input class="field" id="ce-total" value="${c.months_total}" placeholder="Total bulan" inputmode="numeric" style="flex:1">
+        <input class="field" id="ce-paid" value="${c.months_paid}" placeholder="Sudah dibayar" inputmode="numeric" style="flex:1">
+      </div>
+      <button class="btn primary" style="width:100%;margin-top:6px" onclick="saveCicEdit('${c.id}',this)">Simpan perubahan</button>
+    `}
+    <button class="btn no" style="width:100%;margin-top:9px" onclick="delCic('${c.id}',this)">Hapus cicilan</button>`;
+  overlay.classList.add('on');
+}
+async function saveCicEdit(id,btn){
+  const prov=$('ce-prov').value.trim(); if(!prov){ toast('Isi penyedianya'); return; }
+  const per=parseRp($('ce-per').value), tot=parseRp($('ce-total').value), paid=parseRp($('ce-paid').value);
+  if(per<=0||tot<=0){ toast('Isi nominal dan total bulan'); return; }
+  btn.disabled=true;
+  const { error } = await sb.rpc('edit_installment',{ p_inst:id, p_provider:prov, p_item:$('ce-item').value.trim()||null,
+    p_per:per, p_total:tot, p_paid:Math.min(paid,tot), p_due:null });
   btn.disabled=false; if(error) return oops(error);
-  closeSheet(); await refresh(); toast('Cicilan ditambahkan');
+  closeSheet(); await refresh(); toast('Cicilan diperbarui');
+}
+async function saveSchedEdit(id,btn){
+  const c=db.installments.find(x=>x.id===id); if(!c) return;
+  const prov=$('ce-prov').value.trim(); if(!prov){ toast('Isi penyedianya'); return; }
+  // gabungkan: bulan yang sudah dibayar pakai nilai lama, yang belum pakai input
+  const paidMap={}; (db.sched[id]||[]).forEach(s=>{ if(s.paid) paidMap[s.month_no]=Number(s.amount_rp); });
+  const edited={}; document.querySelectorAll('.sched-amt-edit').forEach(el=>{ edited[parseInt(el.dataset.m,10)]=parseRp(el.value); });
+  const n=(db.sched[id]||[]).length;
+  const amts=[];
+  for(let m=1;m<=n;m++){ amts.push(paidMap[m]!=null?paidMap[m]:(edited[m]||0)); }
+  if(amts.some(a=>a<=0)){ toast('Isi nominal semua bulan'); return; }
+  btn.disabled=true;
+  await sb.rpc('edit_installment',{ p_inst:id, p_provider:prov, p_item:$('ce-item').value.trim()||null, p_per:null,p_total:null,p_paid:null,p_due:null });
+  const { error } = await sb.rpc('set_installment_schedule',{ p_inst:id, p_amounts:amts });
+  btn.disabled=false; if(error) return oops(error);
+  closeSheet(); await refresh(); toast('Jadwal cicilan diperbarui');
+}
+async function delCic(id,btn){
+  if(!confirm('Hapus cicilan ini beserta riwayatnya? Tidak bisa dibatalkan.')) return;
+  btn.disabled=true;
+  const { error } = await sb.from('installments').delete().eq('id',id);
+  btn.disabled=false; if(error) return oops(error);
+  closeSheet(); await refresh(); toast('Cicilan dihapus');
 }
 
 /* ---------- REM BELANJA ---------- */
@@ -1585,7 +1821,18 @@ async function selesaiBelanja(){
 }
 
 /* ---------- SIMULASI ---------- */
-function cicilanBulanKe(m){ return db.installments.reduce((s,c)=>s+((sisaBulanCic(c)>=m)?Number(c.per_rp):0),0); }
+function cicilanBulanKe(m){
+  // m = bulan ke-berapa dari sekarang (1..). Untuk cicilan berubah, pakai jadwal.
+  return db.installments.reduce((s,c)=>{
+    if(sisaBulanCic(c) < m) return s;               // sudah lunas sebelum bulan ini
+    if(c.variable){
+      const unpaid=(db.sched[c.id]||[]).filter(x=>!x.paid).sort((a,b)=>a.month_no-b.month_no);
+      const row=unpaid[m-1];                          // bulan ke-m dari yang tersisa
+      return s + (row?Number(row.amount_rp):0);
+    }
+    return s + Number(c.per_rp);
+  },0);
+}
 function fmDasar(){
   const income=budgetIncome();
   const isN=n=>/nabung|tabung/i.test(n), isC=n=>/cicilan/i.test(n);
