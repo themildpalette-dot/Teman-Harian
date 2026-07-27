@@ -375,7 +375,6 @@
       <div class="sec"><h2>Aksi cepat</h2></div>
       <div class="qact">
         <button class="qbtn" onclick="showView('uang');showUang('catat');openTxAdd()"><span class="qi" style="background:var(--mint-soft);color:var(--mint-ink)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>Catat</button>
-        <button class="qbtn" onclick="showView('uang');showUang('catat');openScan()"><span class="qi" style="background:var(--blue-soft);color:var(--blue-ink)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></span>Scan</button>
         <button class="qbtn" onclick="showView('makan');showMakan('rencana')"><span class="qi" style="background:var(--warm-soft);color:var(--warm-ink)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 3v3M16 3v3M8 11h8M8 15h5"/></svg></span>Menu</button>
         <button class="qbtn" onclick="showView('makan');showMakan('belanja')"><span class="qi" style="background:var(--violet-soft);color:var(--violet-ink)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6h15l-1.5 9h-12z"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M6 6L5 3H2"/></svg></span>Belanja</button>
       </div>
@@ -430,8 +429,7 @@
         <div class="dayhead"><span class="d" id="day-label">Hari ini</span><span class="t" id="day-total"></span></div>
         <div id="day-list"></div>
         <div style="display:flex;gap:9px">
-          <button class="btn ghost" style="flex:1" onclick="openScan()">Scan struk</button>
-          <button class="btn primary" style="flex:1" onclick="openTxAdd()">Catat</button>
+          <button class="btn primary" style="flex:1" onclick="openTxAdd()">Catat transaksi</button>
         </div>
       </div>
 
@@ -2005,7 +2003,7 @@ function sheetSpin(judul,pesan,sub,warna,ring){
   sheet.innerHTML=`<div class="grab"></div><h3>${judul}</h3><div style="display:flex;align-items:center;gap:11px;background:${warna};border-radius:13px;padding:14px"><div class="spin" style="border-top-color:${ring}"></div><div><div style="font-size:14px;font-weight:600;color:${ring}">${pesan}</div><div style="font-size:12px;color:var(--muted);font-weight:500;margin-top:2px">${sub}</div></div></div>`;
   overlay.classList.add('on');
 }
-const badgeAI = (ai,t) => ai?`<span class="pill mint">✨ ${t}</span>`:`<span class="pill gray">Mode offline — hitungan otomatis</span>`;
+const badgeAI = (ai,t) => ai?`<span class="pill mint">✨ ${t}</span>`:`<span class="pill gray">Rekomendasi otomatis</span>`;
 const r1000 = v => Math.max(0, Math.round(v/1000)*1000);
 
 /* --- AI advisor anggaran --- */
